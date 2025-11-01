@@ -163,3 +163,11 @@ PublishProfiles/
 logs/
 src/Modules/**/wwwroot/admin/*.min.js
 .vscode
+
+# Sensitive configuration files
+appsettings.Local.json
+**/appsettings.Local.json
+.env
+.env.local
+.env.*.local
+secrets.json
