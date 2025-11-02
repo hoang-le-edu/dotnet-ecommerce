@@ -14,6 +14,9 @@
 
         <DirToCopy Condition="$([System.Environment]::Is64BitOperatingSystem)">64bit</DirToCopy>
         <DirToCopy Condition="!$([System.Environment]::Is64BitOperatingSystem)">32bit</DirToCopy>
+        
+        <!-- Fix SolutionDir if not defined -->
+        <SolutionDir Condition="'$(SolutionDir)' == '' Or '$(SolutionDir)' == '*Undefined*'">$(MSBuildThisFileDirectory)..\..\..\..\</SolutionDir>
     </PropertyGroup>
   
     <Copy SourceFiles="lib\$(DirToCopy)\$(FileToCopy)" DestinationFolder="$(SolutionDir)src\SimplCommerce.WebHost\$(OutDir)" />

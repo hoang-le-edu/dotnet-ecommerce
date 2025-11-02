@@ -167,6 +167,8 @@ src/Modules/**/wwwroot/admin/*.min.js
 # Sensitive configuration files
 appsettings.Local.json
 **/appsettings.Local.json
+appsettings.Development.json
+**/appsettings.Development.json
 .env
 .env.local
 .env.*.local

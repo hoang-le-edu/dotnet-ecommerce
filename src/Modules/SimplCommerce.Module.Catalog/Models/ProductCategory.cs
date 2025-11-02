@@ -4,6 +4,13 @@ namespace SimplCommerce.Module.Catalog.Models
 {
     public class ProductCategory : EntityBase
     {
+        public ProductCategory() { }
+
+        public ProductCategory(long id)
+        {
+            Id = id;
+        }
+
         public bool IsFeaturedProduct { get; set; }
 
         public int DisplayOrder { get; set; }

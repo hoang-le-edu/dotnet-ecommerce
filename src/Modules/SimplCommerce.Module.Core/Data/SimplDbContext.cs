@@ -133,7 +133,7 @@ namespace SimplCommerce.Module.Core.Data
 
         private static void RegisterCustomMappings(ModelBuilder modelBuilder, IEnumerable<Type> typeToRegisters)
         {
-            var customModelBuilderTypes = typeToRegisters.Where(x => typeof(ICustomModelBuilder).IsAssignableFrom(x));
+            var customModelBuilderTypes = typeToRegisters.Where(x => typeof(ICustomModelBuilder).IsAssignableFrom(x)).Distinct();
             foreach (var builderType in customModelBuilderTypes)
             {
                 if (builderType != null && builderType != typeof(ICustomModelBuilder))

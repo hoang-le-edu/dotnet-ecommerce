@@ -5,6 +5,13 @@ namespace SimplCommerce.Module.Core.Models
 {
     public class Entity : EntityBase
     {
+        public Entity() { }
+
+        public Entity(long id)
+        {
+            Id = id;
+        }
+
         [Required(ErrorMessage = "The {0} field is required.")]
         [StringLength(450)]
         public string Slug { get; set; }
