@@ -111,6 +111,13 @@ void Configure()
             pattern: "{controller=Home}/{action=Index}/{id?}");
     });
 
+    // Run database migrations automatically
+    using (var scope = app.Services.CreateScope())
+    {
+        var dbContext = scope.ServiceProvider.GetRequiredService<SimplCommerce.Module.Core.Data.SimplDbContext>();
+        dbContext.Database.Migrate();
+    }
+
     var moduleInitializers = app.Services.GetServices<IModuleInitializer>();
     foreach (var moduleInitializer in moduleInitializers)
     {
