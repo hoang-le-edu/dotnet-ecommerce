@@ -165,7 +165,7 @@
     "version": "1.0.0"
   },
   {
-    "id": "SimplCommerce.Module.StorageLocal",
+    "id": "SimplCommerce.Module.StorageAzureBlob",
     "isBundledWithHost": true,
     "version": "1.0.0"
   },

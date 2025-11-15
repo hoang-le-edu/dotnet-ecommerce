@@ -19,9 +19,15 @@ namespace SimplCommerce.Module.StorageAzureBlob
             var containerName = configuration["Azure:Blob:ContainerName"];
             _publicEndpoint = configuration["Azure:Blob:PublicEndpoint"];
 
-            Contract.Requires(string.IsNullOrWhiteSpace(storageConnectionString));
-            Contract.Requires(string.IsNullOrWhiteSpace(containerName));
+            if (string.IsNullOrWhiteSpace(storageConnectionString))
+            {
+                throw new System.ArgumentException("Azure Blob Storage connection string is not configured. Please add Azure:Blob:StorageConnectionString to appsettings.json");
+            }
 
+            if (string.IsNullOrWhiteSpace(containerName))
+            {
+                throw new System.ArgumentException("Azure Blob Storage container name is not configured. Please add Azure:Blob:ContainerName to appsettings.json");
+            }
 
             var blobClient = new BlobServiceClient(storageConnectionString);
             _blobContainer = blobClient.GetBlobContainerClient(containerName);
