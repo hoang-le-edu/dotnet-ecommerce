@@ -20,6 +20,8 @@ using SimplCommerce.Module.Core.Extensions;
 using SimplCommerce.Module.Localization.Extensions;
 using SimplCommerce.Module.Localization.TagHelpers;
 using SimplCommerce.WebHost.Extensions;
+using SimplCommerce.Infrastructure.Cache;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 ConfigureService();
@@ -45,6 +47,32 @@ void ConfigureService()
     builder.Services.AddTransient(typeof(IRepository<>), typeof(Repository<>));
     builder.Services.AddTransient(typeof(IRepositoryWithTypedId<,>), typeof(RepositoryWithTypedId<,>));
     builder.Services.AddScoped<SlugRouteValueTransformer>();
+
+    // Redis Cache Configuration
+    var redisEnabled = builder.Configuration.GetValue<bool>("Redis:Enabled");
+    if (redisEnabled)
+    {
+        var redisConnection = builder.Configuration.GetConnectionString("RedisConnection");
+        
+        builder.Services.AddStackExchangeRedisCache(options =>
+        {
+            options.Configuration = redisConnection;
+            options.InstanceName = builder.Configuration.GetValue<string>("Redis:InstanceName");
+        });
+
+        builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+            ConnectionMultiplexer.Connect(redisConnection));
+
+        builder.Services.AddScoped<IRedisCacheService, RedisCacheService>();
+    }
+    else
+    {
+        // Fallback: Create a no-op cache service when Redis is disabled
+        builder.Services.AddSingleton<IConnectionMultiplexer>(sp => 
+            ConnectionMultiplexer.Connect("localhost:6379,abortConnect=False"));
+        builder.Services.AddDistributedMemoryCache();
+        builder.Services.AddScoped<IRedisCacheService, RedisCacheService>();
+    }
 
     builder.Services.AddCustomizedLocalization();
     builder.Services.AddCustomizedMvc(GlobalConfiguration.Modules);

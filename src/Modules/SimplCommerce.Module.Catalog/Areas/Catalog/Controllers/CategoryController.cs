@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using SimplCommerce.Infrastructure.Cache;
 using SimplCommerce.Infrastructure.Data;
 using SimplCommerce.Module.Catalog.Areas.Catalog.ViewModels;
 using SimplCommerce.Module.Catalog.Models;
@@ -15,6 +17,8 @@ namespace SimplCommerce.Module.Catalog.Areas.Catalog.Controllers
     [ApiExplorerSettings(IgnoreApi = true)]
     public class CategoryController : Controller
     {
+        private const string CATEGORY_DETAIL_CACHE_PREFIX = "Category_Detail_";
+
         private int _pageSize;
         private readonly IRepository<Category> _categoryRepository;
         private readonly IMediaService _mediaService;
@@ -22,6 +26,8 @@ namespace SimplCommerce.Module.Catalog.Areas.Catalog.Controllers
         private readonly IRepository<Brand> _brandRepository;
         private readonly IProductPricingService _productPricingService;
         private readonly IContentLocalizationService _contentLocalizationService;
+        private readonly IRedisCacheService _cache;
+        private readonly IConfiguration _configuration;
 
         public CategoryController(IRepository<Product> productRepository,
             IMediaService mediaService,
@@ -29,6 +35,7 @@ namespace SimplCommerce.Module.Catalog.Areas.Catalog.Controllers
             IRepository<Brand> brandRepository,
             IProductPricingService productPricingService,
             IContentLocalizationService contentLocalizationService,
+            IRedisCacheService cache,
             IConfiguration config)
         {
             _productRepository = productRepository;
@@ -37,15 +44,28 @@ namespace SimplCommerce.Module.Catalog.Areas.Catalog.Controllers
             _brandRepository = brandRepository;
             _productPricingService = productPricingService;
             _contentLocalizationService = contentLocalizationService;
+            _cache = cache;
+            _configuration = config;
             _pageSize = config.GetValue<int>("Catalog.ProductPageSize");
         }
 
-        public IActionResult CategoryDetail(long id, SearchOption searchOption)
+        public async Task<IActionResult> CategoryDetail(long id, SearchOption searchOption)
         {
-            var category = _categoryRepository.Query().FirstOrDefault(x => x.Id == id);
+            // Try get category basic info from cache
+            var cacheKey = $"{CATEGORY_DETAIL_CACHE_PREFIX}{id}";
+            var category = await _cache.GetAsync<Category>(cacheKey);
+            
             if (category == null)
             {
-                return Redirect("~/Error/FindNotFound");
+                category = _categoryRepository.Query().FirstOrDefault(x => x.Id == id);
+                if (category == null)
+                {
+                    return Redirect("~/Error/FindNotFound");
+                }
+
+                // Cache the category
+                var expirationMinutes = _configuration.GetValue<int>("Redis:CacheExpirationMinutes:CategoryDetail", 720);
+                await _cache.SetAsync(cacheKey, category, TimeSpan.FromMinutes(expirationMinutes));
             }
 
             var model = new ProductsByCategory
