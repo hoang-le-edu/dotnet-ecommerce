@@ -1,10 +1,13 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Newtonsoft.Json;
+using SimplCommerce.Infrastructure.Cache;
 using SimplCommerce.Infrastructure.Data;
 using SimplCommerce.Module.Catalog.Areas.Catalog.ViewModels;
 using SimplCommerce.Module.Catalog.Models;
@@ -19,23 +22,31 @@ namespace SimplCommerce.Module.Catalog.Areas.Catalog.Controllers
     [ApiExplorerSettings(IgnoreApi = true)]
     public class ProductController : Controller
     {
+        private const string PRODUCT_DETAIL_CACHE_PREFIX = "Product_Detail_";
+
         private readonly IMediaService _mediaService;
         private readonly IRepository<Product> _productRepository;
         private readonly IMediator _mediator;
         private readonly IProductPricingService _productPricingService;
         private readonly IContentLocalizationService _contentLocalizationService;
+        private readonly IRedisCacheService _cache;
+        private readonly IConfiguration _configuration;
 
         public ProductController(IRepository<Product> productRepository,
             IMediaService mediaService,
             IMediator mediator,
             IProductPricingService productPricingService,
-            IContentLocalizationService contentLocalizationService)
+            IContentLocalizationService contentLocalizationService,
+            IRedisCacheService cache,
+            IConfiguration configuration)
         {
             _productRepository = productRepository;
             _mediaService = mediaService;
             _mediator = mediator;
             _productPricingService = productPricingService;
             _contentLocalizationService = contentLocalizationService;
+            _cache = cache;
+            _configuration = configuration;
         }
 
         [HttpGet("product/product-overview")]
@@ -76,6 +87,16 @@ namespace SimplCommerce.Module.Catalog.Areas.Catalog.Controllers
 
         public async Task<IActionResult> ProductDetail(long id)
         {
+            // Try get from cache first
+            var cacheKey = $"{PRODUCT_DETAIL_CACHE_PREFIX}{id}";
+            var cachedModel = await _cache.GetAsync<ProductDetail>(cacheKey);
+            
+            if (cachedModel != null)
+            {
+                return View(cachedModel);
+            }
+
+            // Get from database if not in cache
             var product = _productRepository.Query()
                 .Include(x => x.OptionValues)
                 .Include(x => x.Categories).ThenInclude(c => c.Category)
@@ -119,6 +140,10 @@ namespace SimplCommerce.Module.Catalog.Areas.Catalog.Controllers
 
             await _mediator.Publish(new EntityViewed { EntityId = product.Id, EntityTypeId = "Product" });
             _productRepository.SaveChanges();
+
+            // Cache the model
+            var expirationMinutes = _configuration.GetValue<int>("Redis:CacheExpirationMinutes:ProductDetail", 120);
+            await _cache.SetAsync(cacheKey, model, TimeSpan.FromMinutes(expirationMinutes));
 
             return View(model);
         }
