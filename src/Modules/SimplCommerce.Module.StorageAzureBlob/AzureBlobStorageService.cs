@@ -19,38 +19,54 @@ namespace SimplCommerce.Module.StorageAzureBlob
             var containerName = configuration["Azure:Blob:ContainerName"];
             _publicEndpoint = configuration["Azure:Blob:PublicEndpoint"];
 
-            if (string.IsNullOrWhiteSpace(storageConnectionString))
+            // Allow null/invalid config for local development (skip Azure Blob)
+            if (string.IsNullOrWhiteSpace(storageConnectionString) || 
+                storageConnectionString.Contains("YOUR_ACCOUNT_KEY") ||
+                storageConnectionString.Contains("YOUR_AZURE"))
             {
-                throw new System.ArgumentException("Azure Blob Storage connection string is not configured. Please add Azure:Blob:StorageConnectionString to appsettings.json");
+                // Skip Azure Blob initialization for local dev
+                return;
             }
 
             if (string.IsNullOrWhiteSpace(containerName))
             {
-                throw new System.ArgumentException("Azure Blob Storage container name is not configured. Please add Azure:Blob:ContainerName to appsettings.json");
+                return;
             }
 
-            var blobClient = new BlobServiceClient(storageConnectionString);
-            _blobContainer = blobClient.GetBlobContainerClient(containerName);
-
-            if (string.IsNullOrWhiteSpace(_publicEndpoint))
+            try
             {
-                _publicEndpoint = _blobContainer.Uri.AbsoluteUri;
-            }
+                var blobClient = new BlobServiceClient(storageConnectionString);
+                _blobContainer = blobClient.GetBlobContainerClient(containerName);
 
+                if (string.IsNullOrWhiteSpace(_publicEndpoint))
+                {
+                    _publicEndpoint = _blobContainer.Uri.AbsoluteUri;
+                }
+            }
+            catch
+            {
+                // Ignore errors during local development
+            }
         }
         public async Task DeleteMediaAsync(string fileName)
         {
+            if (_blobContainer == null) return;
+            
             var blockBlob = _blobContainer.GetBlobClient(fileName);
             await blockBlob.DeleteIfExistsAsync();
         }
 
         public string GetMediaUrl(string fileName)
         {
+            if (_blobContainer == null) return $"/user-content/{fileName}";
+            
             return $"{_publicEndpoint}/{fileName}";
         }
 
         public async Task SaveMediaAsync(Stream mediaBinaryStream, string fileName, string mimeType = null)
         {
+            if (_blobContainer == null) return;
+            
             await _blobContainer.CreateIfNotExistsAsync();
             await _blobContainer.SetAccessPolicyAsync(accessType: PublicAccessType.BlobContainer);
 

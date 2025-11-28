@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.WebEncoders;
 using Microsoft.OpenApi.Models;
 using SimplCommerce.Infrastructure;
@@ -48,29 +49,62 @@ void ConfigureService()
     builder.Services.AddTransient(typeof(IRepositoryWithTypedId<,>), typeof(RepositoryWithTypedId<,>));
     builder.Services.AddScoped<SlugRouteValueTransformer>();
 
-    // Redis Cache Configuration
+    // Redis Cache Configuration with error handling
     var redisEnabled = builder.Configuration.GetValue<bool>("Redis:Enabled");
-    if (redisEnabled)
+    var redisConnection = builder.Configuration.GetConnectionString("RedisConnection");
+    
+    if (redisEnabled && !string.IsNullOrEmpty(redisConnection))
     {
-        var redisConnection = builder.Configuration.GetConnectionString("RedisConnection");
-        
-        builder.Services.AddStackExchangeRedisCache(options =>
+        try
         {
-            options.Configuration = redisConnection;
-            options.InstanceName = builder.Configuration.GetValue<string>("Redis:InstanceName");
-        });
+            // Try to connect Redis with timeout
+            var configOptions = ConfigurationOptions.Parse(redisConnection);
+            configOptions.ConnectTimeout = 5000; // 5 seconds timeout
+            configOptions.AbortOnConnectFail = false; // Don't crash if Redis unavailable
+            
+            builder.Services.AddStackExchangeRedisCache(options =>
+            {
+                options.ConfigurationOptions = configOptions;
+                options.InstanceName = builder.Configuration.GetValue<string>("Redis:InstanceName");
+            });
 
-        builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-            ConnectionMultiplexer.Connect(redisConnection));
+            builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+            {
+                try
+                {
+                    return ConnectionMultiplexer.Connect(configOptions);
+                }
+                catch (Exception ex)
+                {
+                    var logger = sp.GetRequiredService<ILogger<Program>>();
+                    logger.LogError(ex, "Failed to connect to Redis. Using distributed memory cache instead.");
+                    return null; // Will fallback to memory cache
+                }
+            });
 
-        builder.Services.AddScoped<IRedisCacheService, RedisCacheService>();
+            builder.Services.AddScoped<IRedisCacheService, RedisCacheService>();
+            
+            Console.WriteLine($"[Info] Redis configured: {redisConnection.Split(',')[0]}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Warning] Redis configuration failed: {ex.Message}");
+            Console.WriteLine("[Info] Falling back to distributed memory cache");
+            builder.Services.AddDistributedMemoryCache();
+            
+            // Register null IConnectionMultiplexer for RedisCacheService constructor
+            builder.Services.AddSingleton<IConnectionMultiplexer>(sp => null);
+            builder.Services.AddScoped<IRedisCacheService, RedisCacheService>();
+        }
     }
     else
     {
-        // Fallback: Create a no-op cache service when Redis is disabled
-        builder.Services.AddSingleton<IConnectionMultiplexer>(sp => 
-            ConnectionMultiplexer.Connect("localhost:6379,abortConnect=False"));
+        Console.WriteLine("[Info] Redis disabled. Using distributed memory cache.");
         builder.Services.AddDistributedMemoryCache();
+        
+        // RedisCacheService still needs IConnectionMultiplexer in constructor, even when disabled
+        // It checks Redis:Enabled internally and won't use it if disabled
+        builder.Services.AddSingleton<IConnectionMultiplexer>(sp => null);
         builder.Services.AddScoped<IRedisCacheService, RedisCacheService>();
     }
 

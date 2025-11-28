@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using SimplCommerce.Infrastructure;
+using SimplCommerce.Infrastructure.Modules;
 using SimplCommerce.Module.Core.Data;
 using SimplCommerce.Module.Core.Extensions;
 using SimplCommerce.Module.Core.Models;
@@ -19,6 +20,14 @@ var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 // Set Global Configuration
 GlobalConfiguration.WebRootPath = builder.Environment.WebRootPath;
 GlobalConfiguration.ContentRootPath = builder.Environment.ContentRootPath;
+
+// Load Core Module for Entity Configuration
+var coreModule = new SimplCommerce.Infrastructure.Modules.ModuleInfo
+{
+    Name = "SimplCommerce.Module.Core",
+    Assembly = typeof(SimplCommerce.Module.Core.Models.User).Assembly
+};
+GlobalConfiguration.Modules.Add(coreModule);
 
 // Add DbContext
 builder.Services.AddDbContext<SimplDbContext>(options =>

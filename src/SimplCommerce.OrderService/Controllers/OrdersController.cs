@@ -9,10 +9,10 @@ using SimplCommerce.ServiceCommunication.DTOs;
 namespace SimplCommerce.OrderService.Controllers;
 
 /// <summary>
-/// Controller for order management
+/// Controller for order management - Microservice endpoint
 /// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/microservices/[controller]")]
 [Authorize]
 public class OrdersController : ControllerBase
 {

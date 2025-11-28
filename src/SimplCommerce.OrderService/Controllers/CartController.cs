@@ -11,7 +11,7 @@ namespace SimplCommerce.OrderService.Controllers;
 /// Controller for shopping cart management
 /// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/microservices/[controller]")]
 [Authorize]
 public class CartController : ControllerBase
 {

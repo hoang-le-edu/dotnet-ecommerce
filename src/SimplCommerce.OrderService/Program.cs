@@ -6,8 +6,11 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using SimplCommerce.Infrastructure;
 using SimplCommerce.Infrastructure.Data;
+using SimplCommerce.Infrastructure.Modules;
 using SimplCommerce.Module.Core.Data;
+using SimplCommerce.Module.Core.Extensions;
 using SimplCommerce.Module.Core.Models;
+using SimplCommerce.Module.Core.Services;
 using SimplCommerce.Module.Orders.Services;
 using SimplCommerce.Module.Pricing.Services;
 using SimplCommerce.Module.ShoppingCart.Services;
@@ -15,6 +18,8 @@ using SimplCommerce.Module.Checkouts.Services;
 using SimplCommerce.Module.Catalog.Services;
 using SimplCommerce.Module.ShippingPrices.Services;
 using SimplCommerce.Module.Tax.Services;
+using SimplCommerce.Module.StorageLocal;
+using SimplCommerce.Module.Localization.Extensions;
 using SimplCommerce.ServiceCommunication.Extensions;
 using SimplCommerce.ServiceCommunication.Configuration;
 
@@ -27,6 +32,31 @@ var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 // Set Global Configuration
 GlobalConfiguration.WebRootPath = builder.Environment.WebRootPath;
 GlobalConfiguration.ContentRootPath = builder.Environment.ContentRootPath;
+
+// Load Modules for Entity Configuration
+GlobalConfiguration.Modules.Add(new ModuleInfo
+{
+    Name = "SimplCommerce.Module.Core",
+    Assembly = typeof(SimplCommerce.Module.Core.Models.User).Assembly
+});
+
+GlobalConfiguration.Modules.Add(new ModuleInfo
+{
+    Name = "SimplCommerce.Module.Catalog",
+    Assembly = typeof(SimplCommerce.Module.Catalog.Models.Product).Assembly
+});
+
+GlobalConfiguration.Modules.Add(new ModuleInfo
+{
+    Name = "SimplCommerce.Module.Orders",
+    Assembly = typeof(SimplCommerce.Module.Orders.Models.Order).Assembly
+});
+
+GlobalConfiguration.Modules.Add(new ModuleInfo
+{
+    Name = "SimplCommerce.Module.ShoppingCart",
+    Assembly = typeof(SimplCommerce.Module.ShoppingCart.Models.CartItem).Assembly
+});
 
 // Add DbContext
 builder.Services.AddDbContext<SimplDbContext>(options =>
@@ -65,12 +95,27 @@ builder.Services.AddTransient(typeof(IRepositoryWithTypedId<,>), typeof(Reposito
 // Add Identity Service Client for inter-service communication
 builder.Services.AddIdentityServiceClient(builder.Configuration);
 
+// Add Core Services
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IWorkContext, WorkContext>();
+builder.Services.AddScoped<ICurrencyService, CurrencyService>();
+builder.Services.AddTransient<IMediaService, MediaService>();
+builder.Services.AddTransient<IStorageService, LocalStorageService>();
+builder.Services.AddScoped<ITaxService, TaxService>();
+
+// Add Memory Cache (required by EfStringLocalizerFactory)
+builder.Services.AddMemoryCache();
+
+// Add Localization
+builder.Services.AddCustomizedLocalization();
+
 // Add Order-related services
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddScoped<ICheckoutService, CheckoutService>();
 builder.Services.AddScoped<ICouponService, CouponService>();
 builder.Services.AddScoped<IProductPricingService, ProductPricingService>();
+builder.Services.AddScoped<IShippingPriceService, ShippingPriceService>();
 
 // Add MediatR
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));

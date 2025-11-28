@@ -10,7 +10,7 @@ namespace SimplCommerce.OrderService.Controllers;
 /// Controller for product catalog (read-only for order service)
 /// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/microservices/[controller]")]
 public class ProductsController : ControllerBase
 {
     private readonly IRepository<Product> _productRepository;
