@@ -25,6 +25,7 @@ jobs:
 
       - name: Build with dotnet
         run: dotnet build --configuration Release
+        continue-on-error: false
 
       - name: dotnet publish
         run: dotnet publish src/SimplCommerce.WebHost/SimplCommerce.WebHost.csproj -c Release -o "${{env.DOTNET_ROOT}}/myapp"
@@ -38,6 +39,8 @@ jobs:
   deploy:
     runs-on: windows-latest
     needs: build
+    permissions:
+      contents: read
     
     steps:
       - name: Download artifact from build job

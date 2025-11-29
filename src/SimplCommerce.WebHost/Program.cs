@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Linq;
 using System.Text.Encodings.Web;
 using System.Text.Unicode;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Razor;
@@ -50,26 +52,64 @@ void ConfigureService()
 
     // Redis Cache Configuration
     var redisEnabled = builder.Configuration.GetValue<bool>("Redis:Enabled");
-    if (redisEnabled)
+    var redisConnection = builder.Configuration.GetConnectionString("RedisConnection");
+    
+    if (redisEnabled && !string.IsNullOrEmpty(redisConnection))
     {
-        var redisConnection = builder.Configuration.GetConnectionString("RedisConnection");
-        
-        builder.Services.AddStackExchangeRedisCache(options =>
+        try
         {
-            options.Configuration = redisConnection;
-            options.InstanceName = builder.Configuration.GetValue<string>("Redis:InstanceName");
-        });
+            Console.WriteLine($"[Info] Attempting to connect to Redis...");
+            
+            var configOptions = ConfigurationOptions.Parse(redisConnection);
+            configOptions.ConnectTimeout = 3000; // 3 seconds timeout
+            configOptions.SyncTimeout = 3000;
+            configOptions.AsyncTimeout = 3000;
+            configOptions.ConnectRetry = 2;
+            configOptions.AbortOnConnectFail = false;
+            configOptions.AllowAdmin = false;
+            
+            // Use Task.Run with timeout to prevent blocking
+            var connectTask = Task.Run(() => ConnectionMultiplexer.Connect(configOptions));
+            if (!connectTask.Wait(TimeSpan.FromSeconds(5)))
+            {
+                throw new TimeoutException("Redis connection timeout after 5 seconds");
+            }
+            
+            var multiplexer = connectTask.Result;
+            
+            if (!multiplexer.IsConnected)
+            {
+                throw new Exception("Redis multiplexer created but not connected");
+            }
+            
+            builder.Services.AddStackExchangeRedisCache(options =>
+            {
+                options.Configuration = redisConnection;
+                options.InstanceName = builder.Configuration.GetValue<string>("Redis:InstanceName");
+            });
 
-        builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-            ConnectionMultiplexer.Connect(redisConnection));
-
-        builder.Services.AddScoped<IRedisCacheService, RedisCacheService>();
+            builder.Services.AddSingleton<IConnectionMultiplexer>(multiplexer);
+            builder.Services.AddScoped<IRedisCacheService, RedisCacheService>();
+            
+            Console.WriteLine($"[Info] Redis connected successfully: {multiplexer.GetEndPoints().FirstOrDefault()}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Warning] Redis connection failed: {ex.Message}");
+            Console.WriteLine($"[Warning] Falling back to in-memory distributed cache");
+            
+            // Fallback to memory cache
+            builder.Services.AddSingleton<IConnectionMultiplexer>(sp => null);
+            builder.Services.AddDistributedMemoryCache();
+            builder.Services.AddScoped<IRedisCacheService, RedisCacheService>();
+        }
     }
     else
     {
-        // Fallback: Create a no-op cache service when Redis is disabled
-        builder.Services.AddSingleton<IConnectionMultiplexer>(sp => 
-            ConnectionMultiplexer.Connect("localhost:6379,abortConnect=False"));
+        Console.WriteLine("[Info] Redis disabled. Using in-memory cache.");
+        
+        // Register a dummy IConnectionMultiplexer to satisfy DI
+        builder.Services.AddSingleton<IConnectionMultiplexer>(sp => null);
         builder.Services.AddDistributedMemoryCache();
         builder.Services.AddScoped<IRedisCacheService, RedisCacheService>();
     }
