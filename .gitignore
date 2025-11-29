@@ -169,8 +169,8 @@ appsettings.Local.json
 **/appsettings.Local.json
 appsettings.Development.json
 **/appsettings.Development.json
-src/SimplCommerce.WebHost/appsettings.json
-src/SimplCommerce.WebHost/appsettings.Production.json
+# Note: appsettings.json and appsettings.Production.json are tracked as templates
+# Real secrets are provided by Azure App Service Configuration
 .env
 .env.local
 .env.*.local
