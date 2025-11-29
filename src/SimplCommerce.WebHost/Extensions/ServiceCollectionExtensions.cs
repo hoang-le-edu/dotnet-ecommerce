@@ -220,7 +220,11 @@ namespace SimplCommerce.WebHost.Extensions
         {
             services.AddDbContextPool<SimplDbContext>(options => 
             {
-                options.UseSqlServer(configuration.GetConnectionString("DefaultConnection"), b => b.MigrationsAssembly("SimplCommerce.WebHost"));
+                options.UseSqlServer(configuration.GetConnectionString("DefaultConnection"), b => 
+                {
+                    b.MigrationsAssembly("SimplCommerce.WebHost");
+                    b.CommandTimeout(300); // 300 seconds (5 min) timeout for large queries without index
+                });
                 options.EnableSensitiveDataLogging();
             });
             return services;

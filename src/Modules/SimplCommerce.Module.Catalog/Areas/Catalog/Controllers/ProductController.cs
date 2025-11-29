@@ -243,5 +243,38 @@ namespace SimplCommerce.Module.Catalog.Areas.Catalog.Controllers
                 }
             }
         }
+
+        [HttpGet("api/products/latest")]
+        public async Task<IActionResult> GetLatestProducts(int offset = 0, int limit = 100)
+        {
+            // Limit to max 100 products per request
+            limit = Math.Min(limit, 100);
+
+            var products = await _productRepository.Query()
+                .AsNoTracking()
+                .Where(x => x.IsPublished && x.IsVisibleIndividually)
+                .Include(x => x.ThumbnailImage)
+                .OrderByDescending(x => x.CreatedOn)
+                .Skip(offset)
+                .Take(limit)
+                .Select(x => new
+                {
+                    id = x.Id,
+                    name = x.Name,
+                    slug = x.Slug,
+                    price = x.Price,
+                    oldPrice = x.OldPrice,
+                    specialPrice = x.SpecialPrice,
+                    thumbnailUrl = x.ThumbnailImage != null ? _mediaService.GetThumbnailUrl(x.ThumbnailImage) : null,
+                    calculatedProductPrice = new
+                    {
+                        price = x.Price,
+                        priceString = x.Price.ToString("C")
+                    }
+                })
+                .ToListAsync();
+
+            return Json(products);
+        }
     }
 }
