@@ -1,6 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Globalization;
+using System.Linq;
+using Microsoft.EntityFrameworkCore;
+using System.Threading;
 using System.Threading.Tasks;
 using Braintree;
 using Microsoft.AspNetCore.Mvc;
@@ -14,6 +18,8 @@ using SimplCommerce.Module.Orders.Services;
 using SimplCommerce.Module.PaymentBraintree.Models;
 using SimplCommerce.Module.PaymentBraintree.Services;
 using SimplCommerce.Module.Payments.Models;
+using SimplCommerce.Module.Payments.MessageContracts;
+using SimplCommerce.Module.Payments.Services;
 using SimplCommerce.Module.ShoppingCart.Services;
 
 namespace SimplCommerce.Module.PaymentBraintree.Areas.PaymentBraintree.Controllers
@@ -27,8 +33,11 @@ namespace SimplCommerce.Module.PaymentBraintree.Areas.PaymentBraintree.Controlle
         private readonly IWorkContext _workContext;
         private readonly IRepositoryWithTypedId<PaymentProvider, string> _paymentProviderRepository;
         private readonly IRepository<Payment> _paymentRepository;
+        private readonly IRepository<Order> _orderRepository;
         private readonly IBraintreeConfiguration _braintreeConfiguration;
         private readonly ICurrencyService _currencyService;
+        private readonly IPaymentMessageSender _paymentMessageSender;
+        private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> _checkoutLocks = new ConcurrentDictionary<Guid, SemaphoreSlim>();
 
         public BraintreeController(
             ICheckoutService checkoutService,
@@ -36,109 +45,142 @@ namespace SimplCommerce.Module.PaymentBraintree.Areas.PaymentBraintree.Controlle
             IWorkContext workContext,
             IRepositoryWithTypedId<PaymentProvider, string> paymentProviderRepository,
             IRepository<Payment> paymentRepository,
+            IRepository<Order> orderRepository,
             IBraintreeConfiguration braintreeConfiguration,
-            ICurrencyService currencyService)
+            ICurrencyService currencyService,
+            IPaymentMessageSender paymentMessageSender)
         {
             _checkoutService = checkoutService;
             _orderService = orderService;
             _workContext = workContext;
             _paymentProviderRepository = paymentProviderRepository;
             _paymentRepository = paymentRepository;
+            _orderRepository = orderRepository;
             _braintreeConfiguration = braintreeConfiguration;
             _currencyService = currencyService;
+            _paymentMessageSender = paymentMessageSender;
         }
 
+        //[HttpPost]
+        //public async Task<IActionResult> Charge(string nonce, Guid checkoutId)
+        //{
+        //    var curentUser = await _workContext.GetCurrentUser();
+        //    var cart = await _checkoutService.GetCheckoutDetails(checkoutId);
+        //    if (cart == null) return NotFound();
+
+        //    var semaphore = _checkoutLocks.GetOrAdd(checkoutId, _ => new SemaphoreSlim(1, 1));
+        //    await semaphore.WaitAsync();
+        //    try
+        //    {
+        //        // try to find a recent order for same customer/payment/amount to prevent duplicates
+        //        var tenMinutesAgo = DateTimeOffset.UtcNow.AddMinutes(-10);
+        //        var existingOrder = await _orderRepository.Query()
+        //            .Where(o => o.CustomerId == curentUser.Id
+        //                        && o.PaymentMethod == PaymentProviderHelper.BraintreeProviderId
+        //                        && o.OrderTotal == cart.OrderTotal
+        //                        && (o.OrderStatus == OrderStatus.PendingPayment || o.OrderStatus == OrderStatus.New)
+        //                        && o.CreatedOn >= tenMinutesAgo)
+        //            .OrderByDescending(o => o.CreatedOn)
+        //            .FirstOrDefaultAsync();
+
+        //        Order order;
+        //        if (existingOrder != null)
+        //        {
+        //            order = existingOrder;
+        //        }
+        //        else
+        //        {
+        //            var orderCreateResult = await _orderService.CreateOrder(checkoutId, PaymentProviderHelper.BraintreeProviderId, 0, OrderStatus.PendingPayment);
+        //            if (!orderCreateResult.Success) return BadRequest(orderCreateResult.Error);
+        //            order = orderCreateResult.Value;
+        //        }
+
+        //        // Avoid enqueueing duplicate messages for the same order by checking existing payments
+        //        var existingPayment = await _paymentRepository.Query().FirstOrDefaultAsync(p => p.OrderId == order.Id);
+        //        if (existingPayment == null)
+        //        {
+        //            var message = new PaymentMessage
+        //            {
+        //                OrderId = order.Id,
+        //                CheckoutId = checkoutId,
+        //                Amount = order.OrderTotal,
+        //                PaymentProvider = PaymentProviderHelper.BraintreeProviderId,
+        //                PaymentNonce = nonce,
+        //                CreatedById = curentUser?.Id ?? 0
+        //            };
+
+        //            await _paymentMessageSender.EnqueueAsync(message);
+        //        }
+
+        //        // Return accepted — processing will happen asynchronously by the queue consumer
+        //        return Accepted(new { Status = "queued", OrderId = order.Id });
+        //    }
+        //    finally
+        //    {
+        //        semaphore.Release();
+        //        _checkoutLocks.TryRemove(checkoutId, out _);
+        //    }
+        //}
         [HttpPost]
         public async Task<IActionResult> Charge(string nonce, Guid checkoutId)
         {
-            var gateway = await _braintreeConfiguration.BraintreeGateway();
-
             var curentUser = await _workContext.GetCurrentUser();
-
             var cart = await _checkoutService.GetCheckoutDetails(checkoutId);
-            if(cart == null)
+            if (cart == null) return NotFound();
+
+            var semaphore = _checkoutLocks.GetOrAdd(checkoutId, _ => new SemaphoreSlim(1, 1));
+            await semaphore.WaitAsync();
+            try
             {
-                return NotFound();
-            }
-            var orderCreateResult = await _orderService.CreateOrder(checkoutId, PaymentProviderHelper.BraintreeProviderId, 0, OrderStatus.PendingPayment);
+                var existingOrder = await _orderRepository.Query()
+                    .Where(o => o.CustomerId == curentUser.Id
+                                && o.PaymentMethod == PaymentProviderHelper.BraintreeProviderId
+                                && o.OrderTotal == cart.OrderTotal
+                                && (o.OrderStatus == OrderStatus.PendingPayment
+                                    || o.OrderStatus == OrderStatus.New))
+                    .OrderByDescending(o => o.CreatedOn)
+                    .FirstOrDefaultAsync();
 
-            if (!orderCreateResult.Success)
-            {
-                return BadRequest(orderCreateResult.Error);
-            }
-
-            var order = orderCreateResult.Value;
-            var zeroDecimalOrderAmount = order.OrderTotal;
-            if (!CurrencyHelper.IsZeroDecimalCurrencies(_currencyService.CurrencyCulture))
-            {
-                zeroDecimalOrderAmount = zeroDecimalOrderAmount * 100;
-            }
-
-            var regionInfo = new RegionInfo(_currencyService.CurrencyCulture.LCID);
-            var payment = new Payment()
-            {
-                OrderId = order.Id,
-                Amount = order.OrderTotal,
-                PaymentMethod = PaymentProviderHelper.BraintreeProviderId,
-                CreatedOn = DateTimeOffset.UtcNow
-            };
-
-            var lineItemsRequest = new List<TransactionLineItemRequest>();
-
-            //TODO: Need validation
-            //foreach(var item in order.OrderItems)
-            //{
-            //    lineItemsRequest.Add(new TransactionLineItemRequest
-            //    {
-            //        Description = item.Product.Description.Substring(0, 255),
-            //        Name = item.Product.Name,
-            //        Quantity = item.Quantity,
-            //        UnitAmount = item.ProductPrice,
-            //        ProductCode = item.ProductId.ToString(),
-            //        TotalAmount = item.ProductPrice * item.Quantity
-                    
-            //    });
-            //}
-
-            //TODO: See how customer id works
-            var request = new TransactionRequest
-            {
-                Amount = order.OrderTotal,
-                PaymentMethodNonce = nonce,
-                OrderId = order.Id.ToString(),
-                //LineItems = lineItemsRequest.ToArray(),
-                //CustomerId = order.CustomerId.ToString(),
-                Options = new TransactionOptionsRequest
+                Order order;
+                if (existingOrder != null)
                 {
-                    SubmitForSettlement = true,
-                    SkipAdvancedFraudChecking = false,
-                    SkipCvv = false,
-                    SkipAvs = false,
+                    // Order đã tồn tại -> đã có payment/message -> return ngay
+                    return Accepted(new { Status = "queued", OrderId = existingOrder.Id });
                 }
-            };
-
-            var result = gateway.Transaction.Sale(request);
-            if (result.IsSuccess())
-            {
-                var transaction = result.Target;
-
-                payment.GatewayTransactionId = transaction.Id;
-                payment.Status = PaymentStatus.Succeeded;
-                order.OrderStatus = OrderStatus.PaymentReceived;
-                _paymentRepository.Add(payment);
-                await _paymentRepository.SaveChangesAsync();
-
-                return Ok(new { Status = "success", OrderId = order.Id, TransactionId = transaction.Id });
-            }
-            else
-            {
-                string errorMessages = "";
-                foreach (var error in result.Errors.DeepAll())
+                else
                 {
-                    errorMessages += "Error: " + (int)error.Code + " - " + error.Message + "\n";
+                    // Chưa có order -> tạo mới
+                    var orderCreateResult = await _orderService.CreateOrder(
+                        checkoutId,
+                        PaymentProviderHelper.BraintreeProviderId,
+                        0,
+                        OrderStatus.PendingPayment);
+
+                    if (!orderCreateResult.Success)
+                        return BadRequest(orderCreateResult.Error);
+
+                    order = orderCreateResult.Value;
                 }
 
-                return BadRequest(errorMessages);
+                // Chỉ enqueue khi order mới được tạo
+                var message = new PaymentMessage
+                {
+                    OrderId = order.Id,
+                    CheckoutId = checkoutId,
+                    Amount = order.OrderTotal,
+                    PaymentProvider = PaymentProviderHelper.BraintreeProviderId,
+                    PaymentNonce = nonce,
+                    CreatedById = curentUser?.Id ?? 0
+                };
+
+                await _paymentMessageSender.EnqueueAsync(message);
+
+                return Accepted(new { Status = "queued", OrderId = order.Id });
+            }
+            finally
+            {
+                semaphore.Release();
+                _checkoutLocks.TryRemove(checkoutId, out _);
             }
         }
 

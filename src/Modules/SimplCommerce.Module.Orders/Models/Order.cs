@@ -11,7 +11,7 @@ namespace SimplCommerce.Module.Orders.Models
     {
         public Order()
         {
-            CreatedOn = DateTimeOffset.Now;
+            CreatedOn = DateTimeOffset.Now;     
             LatestUpdatedOn = DateTimeOffset.Now;
             OrderStatus = OrderStatus.New;
             IsMasterOrder = false;

@@ -17,9 +17,9 @@ namespace SimplCommerce.Module.PaymentBraintree.Data
                     IsEnabled = true,
                     AdditionalSettings =
                     "{" +
-                        "\"PublicKey\": \"6j4d7qspt5n48kx4\", " +
-                        "\"PrivateKey\" : \"bd1c26e53a6d811243fcc3eb268113e1\", " +
-                        "\"MerchantId\" : \"ncsh7wwqvzs3cx9q\", " +
+                        "\"PublicKey\": \"zd8x6q6w3v4prkjc\", " +
+                        "\"PrivateKey\" : \"d1ce3dadeead4d9a5e191b6311ecbec3\", " +
+                        "\"MerchantId\" : \"yxz35b6t57m27f25\", " +
                         "\"IsProduction\" : \"false\"" +
                     "}"
                 }
