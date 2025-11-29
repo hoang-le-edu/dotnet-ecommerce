@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SimplCommerce.Module.Core.Data;
 
@@ -11,9 +12,11 @@ using SimplCommerce.Module.Core.Data;
 namespace SimplCommerce.WebHost.Migrations
 {
     [DbContext(typeof(SimplDbContext))]
-    partial class SimplDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251116142409_UpdateBrainTreeKeys")]
+    partial class UpdateBrainTreeKeys
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2759,7 +2762,7 @@ namespace SimplCommerce.WebHost.Migrations
                         new
                         {
                             Id = "Braintree",
-                            AdditionalSettings = "{\"PublicKey\": \"zd8x6q6w3v4prkjc\", \"PrivateKey\" : \"d1ce3dadeead4d9a5e191b6311ecbec3\", \"MerchantId\" : \"yxz35b6t57m27f25\", \"IsProduction\" : \"false\"}",
+                            AdditionalSettings = "{\"PublicKey\": \"4h4qm7wk6kj37gjb\", \"PrivateKey\" : \"3705664b326d96019136b14b88742b09\", \"MerchantId\" : \"6yd3q4z7r983yxrr\", \"IsProduction\" : \"false\"}",
                             ConfigureUrl = "payments-braintree-config",
                             IsEnabled = true,
                             LandingViewComponentName = "BraintreeLanding",
