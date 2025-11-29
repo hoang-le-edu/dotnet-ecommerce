@@ -14,6 +14,8 @@ using SimplCommerce.Module.Orders.Services;
 using SimplCommerce.Module.PaymentBraintree.Models;
 using SimplCommerce.Module.PaymentBraintree.Services;
 using SimplCommerce.Module.Payments.Models;
+using SimplCommerce.Module.Payments.MessageContracts;
+using SimplCommerce.Module.Payments.Services;
 using SimplCommerce.Module.ShoppingCart.Services;
 
 namespace SimplCommerce.Module.PaymentBraintree.Areas.PaymentBraintree.Controllers
@@ -29,6 +31,7 @@ namespace SimplCommerce.Module.PaymentBraintree.Areas.PaymentBraintree.Controlle
         private readonly IRepository<Payment> _paymentRepository;
         private readonly IBraintreeConfiguration _braintreeConfiguration;
         private readonly ICurrencyService _currencyService;
+        private readonly IPaymentMessageSender _paymentMessageSender;
 
         public BraintreeController(
             ICheckoutService checkoutService,
@@ -37,7 +40,8 @@ namespace SimplCommerce.Module.PaymentBraintree.Areas.PaymentBraintree.Controlle
             IRepositoryWithTypedId<PaymentProvider, string> paymentProviderRepository,
             IRepository<Payment> paymentRepository,
             IBraintreeConfiguration braintreeConfiguration,
-            ICurrencyService currencyService)
+            ICurrencyService currencyService,
+            IPaymentMessageSender paymentMessageSender)
         {
             _checkoutService = checkoutService;
             _orderService = orderService;
@@ -46,100 +50,35 @@ namespace SimplCommerce.Module.PaymentBraintree.Areas.PaymentBraintree.Controlle
             _paymentRepository = paymentRepository;
             _braintreeConfiguration = braintreeConfiguration;
             _currencyService = currencyService;
+            _paymentMessageSender = paymentMessageSender;
         }
 
         [HttpPost]
         public async Task<IActionResult> Charge(string nonce, Guid checkoutId)
         {
-            var gateway = await _braintreeConfiguration.BraintreeGateway();
-
             var curentUser = await _workContext.GetCurrentUser();
-
             var cart = await _checkoutService.GetCheckoutDetails(checkoutId);
-            if(cart == null)
-            {
-                return NotFound();
-            }
-            var orderCreateResult = await _orderService.CreateOrder(checkoutId, PaymentProviderHelper.BraintreeProviderId, 0, OrderStatus.PendingPayment);
+            if (cart == null) return NotFound();
 
-            if (!orderCreateResult.Success)
-            {
-                return BadRequest(orderCreateResult.Error);
-            }
+            var orderCreateResult = await _orderService.CreateOrder(checkoutId, PaymentProviderHelper.BraintreeProviderId, 0, OrderStatus.PendingPayment);
+            if (!orderCreateResult.Success) return BadRequest(orderCreateResult.Error);
 
             var order = orderCreateResult.Value;
-            var zeroDecimalOrderAmount = order.OrderTotal;
-            if (!CurrencyHelper.IsZeroDecimalCurrencies(_currencyService.CurrencyCulture))
-            {
-                zeroDecimalOrderAmount = zeroDecimalOrderAmount * 100;
-            }
 
-            var regionInfo = new RegionInfo(_currencyService.CurrencyCulture.LCID);
-            var payment = new Payment()
+            var message = new PaymentMessage
             {
                 OrderId = order.Id,
+                CheckoutId = checkoutId,
                 Amount = order.OrderTotal,
-                PaymentMethod = PaymentProviderHelper.BraintreeProviderId,
-                CreatedOn = DateTimeOffset.UtcNow
+                PaymentProvider = PaymentProviderHelper.BraintreeProviderId,
+                PaymentNonce = nonce,
+                CreatedById = curentUser?.Id ?? 0
             };
 
-            var lineItemsRequest = new List<TransactionLineItemRequest>();
+            await _paymentMessageSender.EnqueueAsync(message);
 
-            //TODO: Need validation
-            //foreach(var item in order.OrderItems)
-            //{
-            //    lineItemsRequest.Add(new TransactionLineItemRequest
-            //    {
-            //        Description = item.Product.Description.Substring(0, 255),
-            //        Name = item.Product.Name,
-            //        Quantity = item.Quantity,
-            //        UnitAmount = item.ProductPrice,
-            //        ProductCode = item.ProductId.ToString(),
-            //        TotalAmount = item.ProductPrice * item.Quantity
-                    
-            //    });
-            //}
-
-            //TODO: See how customer id works
-            var request = new TransactionRequest
-            {
-                Amount = order.OrderTotal,
-                PaymentMethodNonce = nonce,
-                OrderId = order.Id.ToString(),
-                //LineItems = lineItemsRequest.ToArray(),
-                //CustomerId = order.CustomerId.ToString(),
-                Options = new TransactionOptionsRequest
-                {
-                    SubmitForSettlement = true,
-                    SkipAdvancedFraudChecking = false,
-                    SkipCvv = false,
-                    SkipAvs = false,
-                }
-            };
-
-            var result = gateway.Transaction.Sale(request);
-            if (result.IsSuccess())
-            {
-                var transaction = result.Target;
-
-                payment.GatewayTransactionId = transaction.Id;
-                payment.Status = PaymentStatus.Succeeded;
-                order.OrderStatus = OrderStatus.PaymentReceived;
-                _paymentRepository.Add(payment);
-                await _paymentRepository.SaveChangesAsync();
-
-                return Ok(new { Status = "success", OrderId = order.Id, TransactionId = transaction.Id });
-            }
-            else
-            {
-                string errorMessages = "";
-                foreach (var error in result.Errors.DeepAll())
-                {
-                    errorMessages += "Error: " + (int)error.Code + " - " + error.Message + "\n";
-                }
-
-                return BadRequest(errorMessages);
-            }
+            // Return accepted — processing will happen asynchronously by the queue consumer
+            return Accepted(new { Status = "queued", OrderId = order.Id });
         }
 
         [HttpPost]

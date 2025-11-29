@@ -15,6 +15,8 @@ using SimplCommerce.Module.Payments.Models;
 using SimplCommerce.Module.PaymentStripe.Areas.PaymentStripe.ViewModels;
 using SimplCommerce.Module.PaymentStripe.Models;
 using SimplCommerce.Module.ShoppingCart.Services;
+using SimplCommerce.Module.Payments.MessageContracts; 
+using SimplCommerce.Module.Payments.Services;         
 using Stripe;
 
 namespace SimplCommerce.Module.PaymentStripe.Areas.PaymentStripe.Controllers
@@ -29,6 +31,7 @@ namespace SimplCommerce.Module.PaymentStripe.Areas.PaymentStripe.Controllers
         private readonly IRepositoryWithTypedId<PaymentProvider, string> _paymentProviderRepository;
         private readonly IRepository<Payment> _paymentRepository;
         private readonly ICurrencyService _currencyService;
+        private readonly IPaymentMessageSender _paymentMessageSender; // <-- DEPENDENCY MỚI
 
         public StripeController(
             ICheckoutService checkoutService,
@@ -36,7 +39,8 @@ namespace SimplCommerce.Module.PaymentStripe.Areas.PaymentStripe.Controllers
             IWorkContext workContext,
             IRepositoryWithTypedId<PaymentProvider, string> paymentProviderRepository,
             IRepository<Payment> paymentRepository,
-            ICurrencyService currencyService)
+            ICurrencyService currencyService,
+            IPaymentMessageSender paymentMessageSender) // <-- THÊM VÀO CONSTRUCTOR
         {
             _checkoutService = checkoutService;
             _orderService = orderService;
@@ -44,71 +48,47 @@ namespace SimplCommerce.Module.PaymentStripe.Areas.PaymentStripe.Controllers
             _paymentProviderRepository = paymentProviderRepository;
             _paymentRepository = paymentRepository;
             _currencyService = currencyService;
+            _paymentMessageSender = paymentMessageSender; // <-- GÁN
         }
 
+        // Action này nhận token từ Stripe.js/Checkout và gửi vào Queue
+        [HttpPost]
         public async Task<IActionResult> Charge(string stripeEmail, string stripeToken, Guid checkoutId)
         {
-            var stripeProvider = await _paymentProviderRepository.Query().FirstOrDefaultAsync(x => x.Id == PaymentProviderHelper.StripeProviderId);
-            var stripeSetting = JsonConvert.DeserializeObject<StripeConfigForm>(stripeProvider.AdditionalSettings);
-            var stripeChargeService = new ChargeService(stripeSetting.PrivateKey);
             var currentUser = await _workContext.GetCurrentUser();
-
             var cart = await _checkoutService.GetCheckoutDetails(checkoutId);
+
             if (cart == null)
             {
-                return NotFound();
+                TempData["Error"] = "Cart not found.";
+                return Redirect("~/checkout/payment");
             }
 
-            var orderCreationResult = await _orderService.CreateOrder(checkoutId, "Stripe", 0, OrderStatus.PendingPayment);
-            if(!orderCreationResult.Success)
+            // 1. TẠO ORDER BAN ĐẦU (Đồng bộ)
+            // Giữ lại logic tạo Order với trạng thái PENDING PAYMENT
+            var orderCreationResult = await _orderService.CreateOrder(checkoutId, PaymentProviderHelper.StripeProviderId, 0, OrderStatus.PendingPayment);
+
+            if (!orderCreationResult.Success)
             {
                 TempData["Error"] = orderCreationResult.Error;
                 return Redirect("~/checkout/payment");
             }
 
             var order = orderCreationResult.Value;
-            var zeroDecimalOrderAmount = order.OrderTotal;
-            if(!CurrencyHelper.IsZeroDecimalCurrencies(_currencyService.CurrencyCulture))
-            {
-                zeroDecimalOrderAmount = zeroDecimalOrderAmount * 100;
-            }
 
-            var regionInfo = new RegionInfo(_currencyService.CurrencyCulture.LCID);
-            var payment= new Payment()
+            // 2. TẠO MESSAGE VÀ GỬI VÀO QUEUE (Bất đồng bộ)
+            var message = new PaymentMessage
             {
                 OrderId = order.Id,
+                CheckoutId = checkoutId,
                 Amount = order.OrderTotal,
-                PaymentMethod = "Stripe",
-                CreatedOn = DateTimeOffset.UtcNow
+                PaymentProvider = PaymentProviderHelper.StripeProviderId,
+                PaymentNonce = stripeToken, // Dùng StripeToken làm PaymentNonce/Payload
+                CreatedById = currentUser?.Id ?? 0
             };
-            try
-            {
-                var charge = stripeChargeService.Create(new ChargeCreateOptions
-                {
-                    Amount = (int)zeroDecimalOrderAmount,
-                    Description = "Sample Charge",
-                    Currency = regionInfo.ISOCurrencySymbol,
-                    SourceId = stripeToken
-                });
 
-                payment.GatewayTransactionId = charge.Id;
-                payment.Status = PaymentStatus.Succeeded;
-                order.OrderStatus = OrderStatus.PaymentReceived;
-                _paymentRepository.Add(payment);
-                await _paymentRepository.SaveChangesAsync();
-                return Redirect($"~/checkout/success?orderId={order.Id}");
-            }
-            catch(StripeException ex)
-            {
-                payment.Status = PaymentStatus.Failed;
-                payment.FailureMessage = ex.StripeError.Message;
-                order.OrderStatus = OrderStatus.PaymentFailed;
-
-                _paymentRepository.Add(payment);
-                await _paymentRepository.SaveChangesAsync();
-                TempData["Error"] = ex.StripeError.Message;
-                return Redirect($"~/checkout/error?orderId={order.Id}");
-            }
+            await _paymentMessageSender.EnqueueAsync(message);
+            return Accepted(new { Status = "queued", OrderId = order.Id });
         }
     }
 }

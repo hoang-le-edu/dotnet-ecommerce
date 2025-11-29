@@ -134,6 +134,9 @@ void ConfigureService()
     {
         c.SwaggerDoc("v1", new OpenApiInfo { Title = "SimplCommerce API", Version = "v1" });
     });
+
+    builder.Services.Configure<SimplCommerce.Module.Payments.Services.AzureQueueOptions>(builder.Configuration.GetSection("AzureQueueOptions"));
+    builder.Services.AddSingleton<SimplCommerce.Module.Payments.Services.IPaymentMessageSender, SimplCommerce.Module.Payments.Services.AzureQueuePaymentMessageSender>();
 }
 
 void Configure()
