@@ -1,6 +1,8 @@
-﻿using System.Linq;
+﻿using System;
+using System.Linq;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
 using SimplCommerce.Infrastructure.Data;
 using SimplCommerce.Infrastructure.Web;
@@ -19,16 +21,19 @@ namespace SimplCommerce.Module.Catalog.Areas.Catalog.Components
         private readonly IMediaService _mediaService;
         private readonly IProductPricingService _productPricingService;
         private readonly IContentLocalizationService _contentLocalizationService;
+        private readonly IDistributedCache _cache;
 
         public ProductWidgetViewComponent(IRepository<Product> productRepository,
             IMediaService mediaService,
             IProductPricingService productPricingService,
-            IContentLocalizationService contentLocalizationService)
+            IContentLocalizationService contentLocalizationService,
+            IDistributedCache cache)
         {
             _productRepository = productRepository;
             _mediaService = mediaService;
             _productPricingService = productPricingService;
             _contentLocalizationService = contentLocalizationService;
+            _cache = cache;
         }
 
         public IViewComponentResult Invoke(WidgetInstanceViewModel widgetInstance)
@@ -53,11 +58,33 @@ namespace SimplCommerce.Module.Catalog.Areas.Catalog.Components
                 query = query.Where(x => x.IsFeatured);
             }
 
-            model.Products = query
-              .Include(x => x.ThumbnailImage)
-              .OrderByDescending(x => x.CreatedOn)
-              .Take(model.Setting.NumberOfProducts)
-              .Select(x => ProductThumbnail.FromProduct(x)).ToList();
+            // Limit to maximum 100 products to prevent timeout on large databases
+            var maxProducts = Math.Min(model.Setting.NumberOfProducts, 100);
+            
+            // Create cache key based on widget settings
+            var cacheKey = $"ProductWidget_{widgetInstance.Id}_{maxProducts}_{model.Setting.CategoryId}_{model.Setting.FeaturedOnly}";
+            var cachedProducts = _cache.GetString(cacheKey);
+            
+            if (!string.IsNullOrEmpty(cachedProducts))
+            {
+                model.Products = JsonConvert.DeserializeObject<System.Collections.Generic.List<ProductThumbnail>>(cachedProducts);
+            }
+            else
+            {
+                model.Products = query
+                  .AsNoTracking() // Read-only query optimization
+                  .Include(x => x.ThumbnailImage)
+                  .OrderByDescending(x => x.CreatedOn)
+                  .Take(maxProducts)
+                  .Select(x => ProductThumbnail.FromProduct(x)).ToList();
+                
+                // Cache for 10 minutes
+                var cacheOptions = new DistributedCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10)
+                };
+                _cache.SetString(cacheKey, JsonConvert.SerializeObject(model.Products), cacheOptions);
+            }
 
             foreach (var product in model.Products)
             {
