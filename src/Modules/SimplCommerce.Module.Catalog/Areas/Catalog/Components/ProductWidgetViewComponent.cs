@@ -58,8 +58,8 @@ namespace SimplCommerce.Module.Catalog.Areas.Catalog.Components
                 query = query.Where(x => x.IsFeatured);
             }
 
-            // Limit to maximum 100 products to prevent timeout on large databases
-            var maxProducts = Math.Min(model.Setting.NumberOfProducts, 100);
+            // Load 100 products initially
+            var maxProducts = 100;
             
             // Create cache key based on widget settings
             var cacheKey = $"ProductWidget_{widgetInstance.Id}_{maxProducts}_{model.Setting.CategoryId}_{model.Setting.FeaturedOnly}";

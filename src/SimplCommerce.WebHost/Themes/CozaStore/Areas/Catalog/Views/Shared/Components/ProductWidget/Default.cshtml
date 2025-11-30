@@ -1,11 +1,81 @@
 ﻿@model SimplCommerce.Module.Catalog.Areas.Catalog.ViewModels.ProductWidgetComponentVm
 
 <h2 class="ltext-103 cl5 m-t-75 m-b-25">@Model.WidgetName</h2>
-<div class="product-list row isotope-grid">
+<div class="product-list row isotope-grid" id="product-widget-@Model.Id">
     @foreach (var product in Model.Products)
     {
-        <div class="col-sm-6 col-md-4 col-lg-3 p-b-35 isotope-item">
+        <div class="col-sm-6 col-md-4 col-lg-3 p-b-35 isotope-item" data-product-id="@product.Id">
             <partial name="/Themes/CozaStore/Areas/Catalog/Views/Shared/_ProductThumbnail.cshtml" model="product" />
         </div>
     }
 </div>
+
+<div class="text-center p-t-45 p-b-45">
+    <button class="flex-c-m stext-101 cl0 size-103 bg1 bor1 hov-btn1 p-lr-15 trans-04" id="load-more-@Model.Id" onclick="loadMoreProducts_@(Model.Id)()">
+        Tải thêm sản phẩm
+    </button>
+    <div id="loading-@Model.Id" class="d-none p-t-15">
+        <i class="fa fa-spinner fa-spin"></i> Đang tải...
+    </div>
+</div>
+
+<script>
+var currentOffset_@(Model.Id) = @Model.Products.Count;
+var isLoading_@(Model.Id) = false;
+
+function loadMoreProducts_@(Model.Id)() {
+    if (isLoading_@(Model.Id)) return;
+    
+    isLoading_@(Model.Id) = true;
+    document.getElementById('load-more-@Model.Id').style.display = 'none';
+    document.getElementById('loading-@Model.Id').classList.remove('d-none');
+    
+    fetch('/api/products/latest?offset=' + currentOffset_@(Model.Id) + '&limit=100')
+        .then(response => response.json())
+        .then(data => {
+            if (data.length > 0) {
+                const container = document.getElementById('product-widget-@Model.Id');
+                data.forEach(product => {
+                    const productHtml = `
+                        <div class="col-sm-6 col-md-4 col-lg-3 p-b-35 isotope-item" data-product-id="${product.id}">
+                            <div class="block2">
+                                <div class="block2-pic hov-img0">
+                                    <img src="${product.thumbnailUrl || '/images/no-image.png'}" alt="${product.name}">
+                                    <a href="/${product.slug}" class="block2-btn flex-c-m stext-103 cl2 size-102 bg0 bor2 hov-btn1 p-lr-15 trans-04">
+                                        Xem chi tiết
+                                    </a>
+                                </div>
+                                <div class="block2-txt flex-w flex-t p-t-14">
+                                    <div class="block2-txt-child1 flex-col-l">
+                                        <a href="/${product.slug}" class="stext-104 cl4 hov-cl1 trans-04 js-name-b2 p-b-6">
+                                            ${product.name}
+                                        </a>
+                                        <span class="stext-105 cl3">
+                                            ${product.calculatedProductPrice ? product.calculatedProductPrice.priceString : ''}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    container.insertAdjacentHTML('beforeend', productHtml);
+                });
+                
+                currentOffset_@(Model.Id) += data.length;
+                
+                document.getElementById('load-more-@Model.Id').style.display = 'block';
+                document.getElementById('loading-@Model.Id').classList.add('d-none');
+                isLoading_@(Model.Id) = false;
+            } else {
+                document.getElementById('loading-@Model.Id').innerHTML = '<p class="stext-102 cl6">Không còn sản phẩm để tải</p>';
+            }
+        })
+        .catch(error => {
+            console.error('Error loading products:', error);
+            document.getElementById('load-more-@Model.Id').style.display = 'block';
+            document.getElementById('loading-@Model.Id').classList.add('d-none');
+            isLoading_@(Model.Id) = false;
+            alert('Không thể tải thêm sản phẩm. Vui lòng thử lại.');
+        });
+}
+</script>
