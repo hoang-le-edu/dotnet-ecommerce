@@ -23,17 +23,17 @@ jobs:
         with:
           dotnet-version: '8.x'
 
-      - name: Build with dotnet
-        run: dotnet build --configuration Release
+      - name: Restore dependencies
+        run: dotnet restore
 
-      - name: dotnet publish
-        run: dotnet publish -c Release -o "${{env.DOTNET_ROOT}}/myapp"
+      - name: Publish IdentityService project
+        run: dotnet publish src/SimplCommerce.IdentityService/SimplCommerce.IdentityService.csproj -c Release -o ./publish/identity --no-restore
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
-          name: .net-app
-          path: ${{env.DOTNET_ROOT}}/myapp
+          name: identity-app
+          path: ./publish/identity
 
   deploy:
     runs-on: windows-latest
@@ -43,7 +43,8 @@ jobs:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
-          name: .net-app
+          name: identity-app
+          path: ./publish/identity
       
       - name: Deploy to Azure Web App
         id: deploy-to-webapp
@@ -51,5 +52,5 @@ jobs:
         with:
           app-name: 'storevipp-identity-service'
           slot-name: 'Production'
-          package: .
+          package: ./publish/identity
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_B6C61150589D4F45A438555A1FAF122D }}

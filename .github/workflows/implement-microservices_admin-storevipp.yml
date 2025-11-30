@@ -23,17 +23,17 @@ jobs:
         with:
           dotnet-version: '8.x'
 
-      - name: Build with dotnet
-        run: dotnet build --configuration Release
+      - name: Restore dependencies
+        run: dotnet restore
 
-      - name: dotnet publish
-        run: dotnet publish -c Release -o "${{env.DOTNET_ROOT}}/myapp"
+      - name: Publish WebHost project
+        run: dotnet publish src/SimplCommerce.WebHost/SimplCommerce.WebHost.csproj -c Release -o ./publish/webhost --no-restore
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
-          name: .net-app
-          path: ${{env.DOTNET_ROOT}}/myapp
+          name: webhost-app
+          path: ./publish/webhost
 
   deploy:
     runs-on: windows-latest
@@ -43,7 +43,8 @@ jobs:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
-          name: .net-app
+          name: webhost-app
+          path: ./publish/webhost
       
       - name: Deploy to Azure Web App
         id: deploy-to-webapp
@@ -51,5 +52,5 @@ jobs:
         with:
           app-name: 'admin-storevipp'
           slot-name: 'Production'
-          package: .
+          package: ./publish/webhost
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_FB265C0D0FA246B28EB4714B4775CCB9 }}

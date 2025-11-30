@@ -23,17 +23,17 @@ jobs:
         with:
           dotnet-version: '8.x'
 
-      - name: Build with dotnet
-        run: dotnet build --configuration Release
+      - name: Restore dependencies
+        run: dotnet restore
 
-      - name: dotnet publish
-        run: dotnet publish -c Release -o "${{env.DOTNET_ROOT}}/myapp"
+      - name: Publish OrderService project
+        run: dotnet publish src/SimplCommerce.OrderService/SimplCommerce.OrderService.csproj -c Release -o ./publish/order --no-restore
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
-          name: .net-app
-          path: ${{env.DOTNET_ROOT}}/myapp
+          name: order-app
+          path: ./publish/order
 
   deploy:
     runs-on: windows-latest
@@ -43,7 +43,8 @@ jobs:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
-          name: .net-app
+          name: order-app
+          path: ./publish/order
       
       - name: Deploy to Azure Web App
         id: deploy-to-webapp
@@ -51,5 +52,5 @@ jobs:
         with:
           app-name: 'storevipp-order-service'
           slot-name: 'Production'
-          package: .
+          package: ./publish/order
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_A0FABB5528F845C3AC9DF64EC0E90DEF }}
