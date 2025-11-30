@@ -23,11 +23,8 @@ jobs:
         with:
           dotnet-version: '8.x'
 
-      - name: Restore dependencies
-        run: dotnet restore
-
-      - name: Publish WebHost project
-        run: dotnet publish src/SimplCommerce.WebHost/SimplCommerce.WebHost.csproj -c Release -o ./publish/webhost --no-restore
+      - name: Build and Publish WebHost project
+        run: dotnet publish src/SimplCommerce.WebHost/SimplCommerce.WebHost.csproj -c Release -o ./publish/webhost
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
