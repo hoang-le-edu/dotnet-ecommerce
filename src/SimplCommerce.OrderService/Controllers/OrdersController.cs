@@ -31,6 +31,47 @@ public class OrdersController : ControllerBase
     }
 
     /// <summary>
+    /// Get all orders (for admin) - returns all orders without user filter
+    /// </summary>
+    /// <param name="page">Page number</param>
+    /// <param name="pageSize">Page size</param>
+    /// <returns>List of all orders</returns>
+    [HttpGet("all")]
+    [Authorize(Roles = "admin")]
+    [ProducesResponseType(typeof(OrderListResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<OrderListResponse>> GetAllOrders(
+        [FromQuery] int page = 1, 
+        [FromQuery] int pageSize = 20)
+    {
+        _logger.LogInformation("Getting ALL orders (admin) - page: {Page}, pageSize: {PageSize}", page, pageSize);
+
+        var query = _orderRepository.Query()
+            .Include(o => o.OrderItems)
+            .ThenInclude(oi => oi.Product)
+            .Include(o => o.Customer)
+            .OrderByDescending(o => o.CreatedOn);
+
+        var totalCount = await query.CountAsync();
+        
+        var orders = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        var orderDtos = orders.Select(o => MapToOrderDto(o)).ToList();
+
+        _logger.LogInformation("Retrieved {Count} orders out of {Total}", orderDtos.Count, totalCount);
+
+        return Ok(new OrderListResponse
+        {
+            Orders = orderDtos,
+            TotalCount = totalCount,
+            PageNumber = page,
+            PageSize = pageSize
+        });
+    }
+
+    /// <summary>
     /// Get all orders for the current user
     /// </summary>
     /// <param name="page">Page number</param>
